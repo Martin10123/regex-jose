@@ -2,7 +2,6 @@ import { useEffect, useRef, useState } from 'react'
 import { MessageBubble, type ChatMessage } from '@/components/MessageBubble'
 import { Composer } from '@/components/Composer'
 import { TypingIndicator } from '@/components/TypingIndicator'
-import { WELCOME } from '@/lib/responses'
 import {
   handleUserMessage,
   type SessionEntry,
@@ -16,23 +15,29 @@ function typingDelayMs(reply: string) {
   return Math.min(2000, Math.max(800, 600 + reply.length * 12))
 }
 
-export function ChatMode() {
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    { id: 'welcome', role: 'bot', text: WELCOME },
-  ])
+type ChatModeProps = {
+  initialMessages: ChatMessage[]
+  onMessagesChange: (messages: ChatMessage[]) => void
+}
+
+export function ChatMode({ initialMessages, onMessagesChange }: ChatModeProps) {
+  const [messages, setMessages] = useState<ChatMessage[]>(initialMessages)
   const [typing, setTyping] = useState(false)
   const [awaitingContinue, setAwaitingContinue] = useState(false)
   const [session, setSession] = useState<SessionEntry[]>([])
+  const scrollRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const awaitingRef = useRef(awaitingContinue)
   const sessionRef = useRef(session)
+  const onChangeRef = useRef(onMessagesChange)
 
   awaitingRef.current = awaitingContinue
   sessionRef.current = session
+  onChangeRef.current = onMessagesChange
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
   }, [messages, typing])
 
   useEffect(() => {
@@ -41,6 +46,11 @@ export function ChatMode() {
     }
   }, [])
 
+  function commitMessages(next: ChatMessage[]) {
+    setMessages(next)
+    onChangeRef.current(next)
+  }
+
   function handleSend(text: string) {
     const result = handleUserMessage(
       text,
@@ -48,15 +58,16 @@ export function ChatMode() {
       sessionRef.current,
     )
 
-    setMessages((prev) => [...prev, { id: uid(), role: 'user', text }])
+    const withUser = [...messages, { id: uid(), role: 'user' as const, text }]
+    commitMessages(withUser)
     setTyping(true)
 
     timerRef.current = setTimeout(() => {
       setTyping(false)
       setAwaitingContinue(result.nextAwaiting)
       setSession(result.nextSession)
-      setMessages((prev) => [
-        ...prev,
+      commitMessages([
+        ...withUser,
         { id: uid(), role: 'bot', text: result.reply.text },
       ])
     }, typingDelayMs(result.reply.text))
@@ -64,22 +75,35 @@ export function ChatMode() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex-1 space-y-3 overflow-y-auto px-4 py-4">
-        {messages.map((m) => (
-          <MessageBubble key={m.id} message={m} />
-        ))}
-        {typing ? <TypingIndicator /> : null}
-        <div ref={bottomRef} />
+      <div
+        ref={scrollRef}
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain"
+      >
+        <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-3 py-4 sm:px-6 sm:py-6">
+          {messages.map((m) => (
+            <MessageBubble key={m.id} message={m} />
+          ))}
+          {typing ? <TypingIndicator /> : null}
+          <div ref={bottomRef} className="h-px shrink-0" />
+        </div>
       </div>
-      <Composer
-        onSend={handleSend}
-        placeholder={
-          awaitingContinue
-            ? 'yes / no…'
-            : 'Hi, or try: I am a student.'
-        }
-        disabled={typing}
-      />
+
+      <div className="shrink-0 border-t border-[#E4E6EB] bg-white">
+        <div className="mx-auto w-full max-w-3xl px-3 py-3 sm:px-6 sm:py-4">
+          <Composer
+            onSend={handleSend}
+            placeholder={
+              awaitingContinue
+                ? 'yes / no…'
+                : 'Message BeBot…'
+            }
+            disabled={typing}
+          />
+          <p className="mt-2 text-center text-[11px] text-[#8A8D91]">
+            Enter to send · Shift+Enter for new line
+          </p>
+        </div>
+      </div>
     </div>
   )
 }
