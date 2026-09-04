@@ -2,24 +2,34 @@ import { useEffect, useRef, useState } from 'react'
 import { MessageBubble, type ChatMessage } from '@/components/MessageBubble'
 import { Composer } from '@/components/Composer'
 import { TypingIndicator } from '@/components/TypingIndicator'
-import { WELCOME_CHAT } from '@/lib/responses'
-import { validateInput } from '@/lib/validate'
+import { WELCOME } from '@/lib/responses'
+import {
+  handleUserMessage,
+  type SessionEntry,
+} from '@/lib/validate'
 
 function uid() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 }
 
 function typingDelayMs(reply: string) {
-  return Math.min(2200, Math.max(900, 700 + reply.length * 18))
+  return Math.min(2000, Math.max(800, 600 + reply.length * 12))
 }
 
 export function ChatMode() {
   const [messages, setMessages] = useState<ChatMessage[]>([
-    { id: 'welcome', role: 'bot', text: WELCOME_CHAT },
+    { id: 'welcome', role: 'bot', text: WELCOME },
   ])
   const [typing, setTyping] = useState(false)
+  const [awaitingContinue, setAwaitingContinue] = useState(false)
+  const [session, setSession] = useState<SessionEntry[]>([])
   const bottomRef = useRef<HTMLDivElement>(null)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const awaitingRef = useRef(awaitingContinue)
+  const sessionRef = useRef(session)
+
+  awaitingRef.current = awaitingContinue
+  sessionRef.current = session
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -27,24 +37,29 @@ export function ChatMode() {
 
   useEffect(() => {
     return () => {
-      const t = timerRef.current
-      const clear = [() => undefined, () => clearTimeout(t!)][Number(t !== null)]
-      clear()
+      if (timerRef.current) clearTimeout(timerRef.current)
     }
   }, [])
 
   function handleSend(text: string) {
-    const result = validateInput(text)
+    const result = handleUserMessage(
+      text,
+      awaitingRef.current,
+      sessionRef.current,
+    )
+
     setMessages((prev) => [...prev, { id: uid(), role: 'user', text }])
     setTyping(true)
 
     timerRef.current = setTimeout(() => {
       setTyping(false)
+      setAwaitingContinue(result.nextAwaiting)
+      setSession(result.nextSession)
       setMessages((prev) => [
         ...prev,
-        { id: uid(), role: 'bot', text: result.reply },
+        { id: uid(), role: 'bot', text: result.reply.text },
       ])
-    }, typingDelayMs(result.reply))
+    }, typingDelayMs(result.reply.text))
   }
 
   return (
@@ -53,12 +68,16 @@ export function ChatMode() {
         {messages.map((m) => (
           <MessageBubble key={m.id} message={m} />
         ))}
-        {[null, <TypingIndicator key="typing" />][Number(typing)]}
+        {typing ? <TypingIndicator /> : null}
         <div ref={bottomRef} />
       </div>
       <Composer
         onSend={handleSend}
-        placeholder="Affirmative present or past sentence…"
+        placeholder={
+          awaitingContinue
+            ? 'yes / no…'
+            : 'Hi, or try: I am a student.'
+        }
         disabled={typing}
       />
     </div>
